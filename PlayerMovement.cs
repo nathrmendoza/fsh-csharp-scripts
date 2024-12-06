@@ -47,6 +47,7 @@ public class PlayerMovement : MonoBehaviour
 
     public float WalkSpeed => walkSpeed;
     public float StandingHeight => standingHeight;
+    public bool IsJumping => isJumping;
 
     private void Awake()
     {
