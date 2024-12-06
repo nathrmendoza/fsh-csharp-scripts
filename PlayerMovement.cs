@@ -45,6 +45,9 @@ public class PlayerMovement : MonoBehaviour
     private float coyoteTimeCounter;
     private float lockedMovementSpeed;
 
+    private StaminaSystem staminaSystem;
+    private float speedMultiplier = 1f;
+
     public float WalkSpeed => walkSpeed;
     public float StandingHeight => standingHeight;
     public bool IsJumping => isJumping;
@@ -53,6 +56,8 @@ public class PlayerMovement : MonoBehaviour
     {
         characterController = GetComponent<CharacterController>();
         cameraHolder = transform.GetComponentInChildren<Camera>().transform.parent;
+        staminaSystem = GetComponent<StaminaSystem>();
+
         playerInputActions = new PlayerInputActions();
 
         currentHeight = standingHeight;
@@ -61,6 +66,7 @@ public class PlayerMovement : MonoBehaviour
 
         characterController.height = standingHeight;
         characterController.center = new Vector3(0, standingHeight / 2f, 0);
+
     }
 
     private void Start()
@@ -93,8 +99,15 @@ public class PlayerMovement : MonoBehaviour
         }
         else
         {
-            targetSpeed = isCrouching ? crouchSpeed : (wantsToRun ? runSpeed : walkSpeed);
+            bool canRun = wantsToRun && staminaSystem.CanRun;
+            targetSpeed = isCrouching ? crouchSpeed : (canRun ? runSpeed : walkSpeed);
+            targetSpeed *= speedMultiplier;
             lockedMovementSpeed = targetSpeed;
+
+            if (canRun && moveDirection.magnitude > 0.1f)
+            {
+                staminaSystem.ConsumeRunningStamina();
+            }
         }
 
         float accelerationRate = targetSpeed > currentRunSpeed ? runAcceleration : runDeceleration;
@@ -149,7 +162,7 @@ public class PlayerMovement : MonoBehaviour
                 isCrouching = false;
                 targetCameraHeight = cameraStandingHeight;
             }
-            else if (coyoteTimeCounter > 0)
+            else if (coyoteTimeCounter > 0 && staminaSystem.CanJump && staminaSystem.TryConsumeJumpStamina())
             {
                 verticalVelocity.y = minJumpForce;
                 coyoteTimeCounter = 0;
@@ -214,6 +227,13 @@ public class PlayerMovement : MonoBehaviour
         Vector3 cameraPos = cameraHolder.localPosition;
         cameraPos.y = height;
         cameraHolder.localPosition = cameraPos;
+    }
+
+
+    // Add this new method for fatigue system
+    public void SetSpeedMultiplier(float multiplier)
+    {
+        speedMultiplier = multiplier;
     }
 
 }
