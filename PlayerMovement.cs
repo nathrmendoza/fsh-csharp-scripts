@@ -25,7 +25,6 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float cameraStandingHeight = 1.7f;
     [SerializeField] private float cameraCrouchHeight = 0.8f;
 
-    [SerializeField] private PlayerCameraController playerCameraController;
     [SerializeField] private Transform cameraTransform;
     private CharacterController characterController;
     private PlayerInputActions playerInputActions;
@@ -33,7 +32,6 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 moveDirection;
     private Vector3 verticalVelocity;
     private bool isCrouching;
-    private bool isRunning;
     private bool isJumping;
     private float currentRunSpeed;
     private float jumpHoldTimer;
@@ -73,22 +71,12 @@ public class PlayerMovement : MonoBehaviour
         HandleMovement();
         HandleJumpAndGravity();
         HandleCrouch();
-
-        //update camera effects
-        Vector2 movement = playerInputActions.Player.Move.ReadValue<Vector2>();
-        playerCameraController.UpdateCamera(
-            movement,
-            characterController.isGrounded,
-            isRunning,
-            transform.position.y
-        );
     }
 
     private void HandleMovement()
     {
         Vector2 input = playerInputActions.Player.Move.ReadValue<Vector2>();
         bool wantsToRun  = playerInputActions.Player.Run.IsPressed();
-        isRunning = playerInputActions.Player.Run.IsPressed();
 
         float targetSpeed;
         if (isJumping)
