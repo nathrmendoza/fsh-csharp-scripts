@@ -8,7 +8,9 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float walkSpeed = 1.9f;
     [SerializeField] private float runSpeed = 7.5f;
     [SerializeField] private float runAcceleration = 4.25f;
+    [SerializeField] private float runDeceleration = 8f;
     [SerializeField] private float crouchSpeed = 1.5f;
+    [SerializeField] private float backwardSpeedMultiplier = 0.6f;
 
     [Header("Jump Settings")]
     [SerializeField] private float minJumpForce = 2f;
@@ -34,6 +36,7 @@ public class PlayerMovement : MonoBehaviour
     private bool isCrouching;
     private bool isJumping;
     private float currentRunSpeed;
+    private float targetSpeed;
     private float jumpHoldTimer;
     private bool isJumpHeld;
     private float currentHeight;
@@ -62,6 +65,7 @@ public class PlayerMovement : MonoBehaviour
     private void Start()
     {
         currentRunSpeed = walkSpeed;
+        targetSpeed = walkSpeed;
     }
 
     private void OnEnable() => playerInputActions.Enable();
@@ -88,25 +92,12 @@ public class PlayerMovement : MonoBehaviour
         }
         else
         {
-            if (isCrouching)
-            {
-                targetSpeed = crouchSpeed;
-            }
-            else
-            {
-                if (wantsToRun)
-                {
-                    currentRunSpeed = Mathf.Lerp(currentRunSpeed, runSpeed, Time.deltaTime * runAcceleration);
-                    targetSpeed = currentRunSpeed;
-                }
-                else
-                {
-                    currentRunSpeed = walkSpeed;
-                    targetSpeed = walkSpeed;
-                }
-            }
+            targetSpeed = isCrouching ? crouchSpeed : (wantsToRun ? runSpeed : walkSpeed);
             lockedMovementSpeed = targetSpeed;
         }
+
+        float accelerationRate = targetSpeed > currentRunSpeed ? runAcceleration : runDeceleration;
+        currentRunSpeed = Mathf.Lerp(currentRunSpeed, targetSpeed, Time.deltaTime * accelerationRate);
 
         Vector3 forward = cameraTransform.forward;
         Vector3 right = cameraTransform.right;
@@ -117,7 +108,16 @@ public class PlayerMovement : MonoBehaviour
         right.Normalize();
 
         moveDirection = (forward * input.y + right * input.x).normalized;
-        moveDirection *= targetSpeed;
+
+        //running backwards
+        float finalSpeed = currentRunSpeed;
+        if (input.y < 0)
+        {
+            float maxBackwardSpeed = Mathf.Lerp(walkSpeed, runSpeed, backwardSpeedMultiplier);
+            finalSpeed = Mathf.Min(currentRunSpeed, maxBackwardSpeed);
+        }
+
+        moveDirection *= finalSpeed;
 
         Vector3 movement = moveDirection + verticalVelocity;
         characterController.Move(movement * Time.deltaTime);
