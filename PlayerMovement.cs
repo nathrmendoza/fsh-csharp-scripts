@@ -42,6 +42,9 @@ public class PlayerMovement : MonoBehaviour
     private float coyoteTimeCounter;
     private float lockedMovementSpeed;
 
+    public float WalkSpeed => walkSpeed;
+    public float StandingHeight => standingHeight;
+
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
