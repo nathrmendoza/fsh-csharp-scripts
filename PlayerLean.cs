@@ -42,14 +42,12 @@ public class PlayerLean : MonoBehaviour
         {
             targetLeanAmount += scroll * scrollSensitivity * Time.deltaTime;
             targetLeanAmount = Mathf.Clamp(targetLeanAmount, 0f, 1f);
-            Debug.Log($"Left Lean - Target: {targetLeanAmount}");
         }
 
         else if (playerInputActions.Player.LeanRight.IsPressed())
         {
             targetLeanAmount += -scroll * scrollSensitivity * Time.deltaTime;
             targetLeanAmount = Mathf.Clamp(targetLeanAmount, -1f, 0f);
-            Debug.Log($"Right Lean - Target: {targetLeanAmount}");
         }
 
         else

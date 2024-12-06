@@ -3,9 +3,9 @@ using UnityEngine;
 public class PlayerHeadBob : MonoBehaviour
 {
     [Header("Bob Parameters")]
-    [SerializeField] private float walkBobFrequency = 10f;
-    [SerializeField] private float runBobFrequency = 17f;
-    [SerializeField] private float crouchBobFrequency = 7.5f;
+    [SerializeField] private float walkBobFrequency = 13f;
+    [SerializeField] private float runBobFrequency = 20f;
+    [SerializeField] private float crouchBobFrequency = 10f;
 
     [SerializeField] private float walkBobAmount = 0.085f;
     [SerializeField] private float runBobAmount = 0.2f;
