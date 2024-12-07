@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class GrabbableObject : MonoBehaviour, IInteractable
 {
@@ -6,18 +7,21 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     [SerializeField] private float weightInKg = 5f;
 
     [Header("Joint Settings")]
-    [SerializeField] private float springForce = 2000f;
-    [SerializeField] private float springDamping = 50f;
+    [SerializeField] private float springForce = 1000f;
+    [SerializeField] private float springDamping = 5f;
 
     [Header("Throw Settings")]
     [SerializeField] private float throwForceMultiplier = 2f;
     [SerializeField] private float forwardThrowForce = 10f;
+    [SerializeField] private int velocitySamples = 5;
 
     private Rigidbody rb;
     private ConfigurableJoint joint;
-    private Vector3 previousPosition;
     private Camera playerCamera;
-    private float velocityTrackingTimer;
+    private Quaternion offsetRotation;
+    private Queue<Vector3> positionSamples;
+    private Vector3 lastPosition;
+    private float fixedTimeStep;
 
     public bool CanInteract { get; private set; } = true;
     public InteractionType InteractionType => InteractionType.Grab;
@@ -26,15 +30,9 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         rb = GetComponent<Rigidbody>();
         rb.mass = weightInKg;
-    }
-
-    private void FixedUpdate()
-    {
-        if (joint != null)
-        {
-            // Track position for throw velocity
-            previousPosition = transform.position;
-        }
+        positionSamples = new Queue<Vector3>();
+        fixedTimeStep = Time.fixedDeltaTime;
+        rb.interpolation = RigidbodyInterpolation.Interpolate;
     }
 
     public void OnInteract() { }
@@ -44,55 +42,63 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     public void StartGrab(Rigidbody grabPoint, Camera playerCam)
     {
         playerCamera = playerCam;
+        offsetRotation = Quaternion.Inverse(playerCam.transform.rotation) * transform.rotation;
+
+        positionSamples.Clear();
+        lastPosition = transform.position;
+
         joint = gameObject.AddComponent<ConfigurableJoint>();
         joint.connectedBody = grabPoint;
 
-        // Lock all rotations
-        joint.angularXMotion = ConfigurableJointMotion.Locked;
-        joint.angularYMotion = ConfigurableJointMotion.Locked;
-        joint.angularZMotion = ConfigurableJointMotion.Locked;
-
-        // Configure movement
+        // Configure movement - slightly looser constraints
         joint.xMotion = ConfigurableJointMotion.Limited;
         joint.yMotion = ConfigurableJointMotion.Limited;
         joint.zMotion = ConfigurableJointMotion.Limited;
 
-        // Configure spring forces
+        // Allow free rotation since we control it directly
+        joint.angularXMotion = ConfigurableJointMotion.Free;
+        joint.angularYMotion = ConfigurableJointMotion.Free;
+        joint.angularZMotion = ConfigurableJointMotion.Free;
+
+        // Softer spring settings
         var drive = new JointDrive
         {
-            positionSpring = springForce / weightInKg,
+            positionSpring = springForce,
             positionDamper = springDamping,
-            maximumForce = Mathf.Infinity
+            maximumForce = springForce * 2f
         };
 
         joint.xDrive = drive;
         joint.yDrive = drive;
         joint.zDrive = drive;
 
-        // Store initial position
-        previousPosition = transform.position;
-
-        // Configure rigidbody
+        // Stop any existing motion
+        rb.linearVelocity = Vector3.zero;
+        rb.angularVelocity = Vector3.zero;
         rb.useGravity = false;
         rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
     }
 
-     public void ForwardThrow()
+    private void Update()
+    {
+        if (joint != null && playerCamera != null)
+        {
+            // Update rotation to match camera orientation
+            Quaternion targetRotation = playerCamera.transform.rotation * offsetRotation;
+            transform.rotation = targetRotation;
+        }
+    }
+
+    private void FixedUpdate()
     {
         if (joint != null)
         {
-            // Calculate base throw velocity
-            Vector3 throwDirection = playerCamera.transform.forward;
-
-            // Apply weight-based throw force
-            float weightedForce = forwardThrowForce / Mathf.Sqrt(weightInKg);
-
-            // Clean up joint
-            Destroy(joint);
-
-            // Apply throw force
-            rb.useGravity = true;
-            rb.linearVelocity = throwDirection * weightedForce;
+            positionSamples.Enqueue(transform.position);
+            if (positionSamples.Count > velocitySamples)
+            {
+                positionSamples.Dequeue();
+            }
+            lastPosition = transform.position;
         }
     }
 
@@ -100,15 +106,33 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         if (joint != null)
         {
-            // Calculate throw velocity
-            Vector3 velocity = (transform.position - previousPosition) / Time.fixedDeltaTime;
+            Vector3 averageVelocity = Vector3.zero;
+            if (positionSamples.Count >= 2)
+            {
+                Vector3 oldestPos = positionSamples.Peek();
+                Vector3 currentPos = transform.position;
+                float timeSpan = fixedTimeStep * (positionSamples.Count - 1);
+                averageVelocity = (currentPos - oldestPos) / timeSpan;
+            }
 
-            // Clean up joint
             Destroy(joint);
-
-            // Apply throw force
             rb.useGravity = true;
-            rb.linearVelocity = velocity * throwForceMultiplier / Mathf.Sqrt(weightInKg);
+            rb.linearVelocity = averageVelocity * throwForceMultiplier;
+            rb.angularVelocity = Vector3.zero;
+        }
+    }
+
+    public void ForwardThrow()
+    {
+        if (joint != null)
+        {
+            Vector3 throwDirection = playerCamera.transform.forward;
+            float weightedForce = forwardThrowForce / Mathf.Sqrt(weightInKg);
+
+            Destroy(joint);
+            rb.useGravity = true;
+            rb.linearVelocity = throwDirection * weightedForce;
+            rb.angularVelocity = Vector3.zero;
         }
     }
 }
