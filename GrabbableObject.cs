@@ -7,8 +7,8 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     [SerializeField] private float weightInKg = 5f;
 
     [Header("Joint Settings")]
-    [SerializeField] private float springForce = 1000f;
-    [SerializeField] private float springDamping = 5f;
+    [SerializeField] private float springForce = 3000f;     // Increased for snappier response
+    [SerializeField] private float springDamping = 10f;     // Adjusted for balance
 
     [Header("Throw Settings")]
     [SerializeField] private float throwForceMultiplier = 2f;
@@ -22,6 +22,8 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     private Queue<Vector3> positionSamples;
     private Vector3 lastPosition;
     private float fixedTimeStep;
+    private Quaternion initialJointRotation;
+    private Quaternion targetRotation;
 
     public bool CanInteract { get; private set; } = true;
     public InteractionType InteractionType => InteractionType.Grab;
@@ -43,6 +45,7 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         playerCamera = playerCam;
         offsetRotation = Quaternion.Inverse(playerCam.transform.rotation) * transform.rotation;
+        targetRotation = transform.rotation;
 
         positionSamples.Clear();
         lastPosition = transform.position;
@@ -50,17 +53,16 @@ public class GrabbableObject : MonoBehaviour, IInteractable
         joint = gameObject.AddComponent<ConfigurableJoint>();
         joint.connectedBody = grabPoint;
 
-        // Configure movement - slightly looser constraints
+        // More restrictive movement for accuracy
         joint.xMotion = ConfigurableJointMotion.Limited;
         joint.yMotion = ConfigurableJointMotion.Limited;
         joint.zMotion = ConfigurableJointMotion.Limited;
 
-        // Allow free rotation since we control it directly
-        joint.angularXMotion = ConfigurableJointMotion.Free;
-        joint.angularYMotion = ConfigurableJointMotion.Free;
-        joint.angularZMotion = ConfigurableJointMotion.Free;
+        joint.angularXMotion = ConfigurableJointMotion.Locked;
+        joint.angularYMotion = ConfigurableJointMotion.Locked;
+        joint.angularZMotion = ConfigurableJointMotion.Locked;
 
-        // Softer spring settings
+        // Stronger drive for more responsive movement
         var drive = new JointDrive
         {
             positionSpring = springForce,
@@ -72,7 +74,10 @@ public class GrabbableObject : MonoBehaviour, IInteractable
         joint.yDrive = drive;
         joint.zDrive = drive;
 
-        // Stop any existing motion
+        // Lock current rotation
+        joint.configuredInWorldSpace = true;
+        initialJointRotation = transform.rotation;
+
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
         rb.useGravity = false;
@@ -83,8 +88,9 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         if (joint != null && playerCamera != null)
         {
-            // Update rotation to match camera orientation
-            Quaternion targetRotation = playerCamera.transform.rotation * offsetRotation;
+            // Direct rotation control
+            // Calculate and store target rotation
+            targetRotation = playerCamera.transform.rotation * offsetRotation;
             transform.rotation = targetRotation;
         }
     }
@@ -93,6 +99,7 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         if (joint != null)
         {
+            // Track positions for throw velocity
             positionSamples.Enqueue(transform.position);
             if (positionSamples.Count > velocitySamples)
             {
@@ -115,9 +122,18 @@ public class GrabbableObject : MonoBehaviour, IInteractable
                 averageVelocity = (currentPos - oldestPos) / timeSpan;
             }
 
+            // Get current state before destroying joint
+            Quaternion finalRotation = transform.rotation;
+            Vector3 finalVelocity = averageVelocity * throwForceMultiplier;
+
+            // Clean up joint
+            rb.rotation = targetRotation;
             Destroy(joint);
+
+            // Apply final state
             rb.useGravity = true;
-            rb.linearVelocity = averageVelocity * throwForceMultiplier;
+            transform.rotation = finalRotation;
+            rb.linearVelocity = finalVelocity;
             rb.angularVelocity = Vector3.zero;
         }
     }
@@ -126,12 +142,18 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         if (joint != null)
         {
-            Vector3 throwDirection = playerCamera.transform.forward;
-            float weightedForce = forwardThrowForce / Mathf.Sqrt(weightInKg);
+            // Get current state
+            rb.rotation = targetRotation;
+            Quaternion finalRotation = transform.rotation;
+            Vector3 throwVelocity = playerCamera.transform.forward * (forwardThrowForce / Mathf.Sqrt(weightInKg));
 
+            // Clean up joint
             Destroy(joint);
+
+            // Apply final state
             rb.useGravity = true;
-            rb.linearVelocity = throwDirection * weightedForce;
+            transform.rotation = finalRotation;
+            rb.linearVelocity = throwVelocity;
             rb.angularVelocity = Vector3.zero;
         }
     }
