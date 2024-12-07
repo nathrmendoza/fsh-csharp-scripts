@@ -5,11 +5,19 @@ public class PlayerGrabSystem : MonoBehaviour
     [Header("Grab Settings")]
     [SerializeField] private float grabRange = 3f;
     [SerializeField] private LayerMask grabbableLayer;
+    [SerializeField] private float minGrabDistance = 1f;
+    [SerializeField] private float maxGrabDistance = 3f;
     [SerializeField] private float scrollSensitivity = 0.1f;
+
+    [Header("References")]
+    [SerializeField] private Transform grabPointPrefab;
 
     private Camera playerCamera;
     private PlayerInputActions playerInputActions;
     private GrabbableObject currentlyHeldObject;
+    private Transform grabPoint;
+    private float currentGrabDistance;
+    private Rigidbody grabPointRb;
 
     private void Awake()
     {
@@ -17,16 +25,24 @@ public class PlayerGrabSystem : MonoBehaviour
         playerInputActions = new PlayerInputActions();
         playerInputActions.Enable();
 
+        // Create grab point
+        grabPoint = Instantiate(grabPointPrefab, transform.position, Quaternion.identity);
+        grabPointRb = grabPoint.GetComponent<Rigidbody>();
+        grabPointRb.isKinematic = true;
+
         // Subscribe to input events
         playerInputActions.Player.Interact.performed += _ => TryGrab();
         playerInputActions.Player.Interact.canceled += _ => Release();
-        playerInputActions.Player.RotateGrabbable.performed += _ => StartRotating();
-        playerInputActions.Player.RotateGrabbable.canceled += _ => StopRotating();
+        playerInputActions.Player.RotateGrabbable.performed += _ => ForwardThrow();
     }
 
-    private void OnDestroy()
+    private void ForwardThrow()
     {
-        playerInputActions.Disable();
+        if (currentlyHeldObject != null)
+        {
+            currentlyHeldObject.ForwardThrow();
+            currentlyHeldObject = null;  // Clear reference after throwing
+        }
     }
 
     private void Update()
@@ -37,23 +53,17 @@ public class PlayerGrabSystem : MonoBehaviour
             float scrollDelta = playerInputActions.Player.Scroll.ReadValue<float>();
             if (scrollDelta != 0)
             {
-                currentlyHeldObject.AdjustDistance(scrollDelta * scrollSensitivity);
+                currentGrabDistance = Mathf.Clamp(
+                    currentGrabDistance + scrollDelta * scrollSensitivity,
+                    minGrabDistance,
+                    maxGrabDistance
+                );
             }
 
-            // Handle rotation
-            if (playerInputActions.Player.RotateGrabbable.IsPressed())
-            {
-                Vector2 lookDelta = playerInputActions.Player.Look.ReadValue<Vector2>();
-                currentlyHeldObject.UpdateRotation(lookDelta);
-            }
-
-            // Update object position
-            Vector3 targetPos = currentlyHeldObject.GetTargetPosition(
-                playerCamera.transform.position,
-                playerCamera.transform.forward
-            );
-
-            currentlyHeldObject.UpdateGrabPosition(targetPos);
+            // Update grab point position
+            Vector3 targetPos = playerCamera.transform.position +
+                              playerCamera.transform.forward * currentGrabDistance;
+            grabPoint.position = targetPos;
         }
     }
 
@@ -68,7 +78,12 @@ public class PlayerGrabSystem : MonoBehaviour
                 if (grabbable != null && grabbable.CanInteract)
                 {
                     currentlyHeldObject = grabbable;
-                    currentlyHeldObject.StartGrab();
+                    currentGrabDistance = Vector3.Distance(playerCamera.transform.position, hit.point);
+                    currentGrabDistance = Mathf.Clamp(currentGrabDistance, minGrabDistance, maxGrabDistance);
+
+                    // Position grab point and start grab
+                    grabPoint.position = hit.point;
+                    currentlyHeldObject.StartGrab(grabPointRb, playerCamera);
                 }
             }
         }
@@ -83,19 +98,12 @@ public class PlayerGrabSystem : MonoBehaviour
         }
     }
 
-    private void StartRotating()
+    private void OnDestroy()
     {
-        if (currentlyHeldObject != null)
+        playerInputActions.Disable();
+        if (grabPoint != null)
         {
-            currentlyHeldObject.SetRotationMode(true);
-        }
-    }
-
-    private void StopRotating()
-    {
-        if (currentlyHeldObject != null)
-        {
-            currentlyHeldObject.SetRotationMode(false);
+            Destroy(grabPoint.gameObject);
         }
     }
 }

@@ -5,22 +5,19 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     [Header("Physical Properties")]
     [SerializeField] private float weightInKg = 5f;
 
-    [Header("Movement Settings")]
-    [SerializeField] private float baseMovementSpeed = 25f;
-    [SerializeField] private float throwForceMultiplier = 10f;
-    [SerializeField] private float maxGrabDistance = 3f;
-    [SerializeField] private float minGrabDistance = 1f;
-    [SerializeField] private float rotationSpeed = 5f;
-    [SerializeField] private float movementDamping = 0.1f;  // Higher value = more stable
+    [Header("Joint Settings")]
+    [SerializeField] private float springForce = 2000f;
+    [SerializeField] private float springDamping = 50f;
+
+    [Header("Throw Settings")]
+    [SerializeField] private float throwForceMultiplier = 2f;
+    [SerializeField] private float forwardThrowForce = 10f;
 
     private Rigidbody rb;
-    private bool isGrabbed;
-    private bool isBeingRotated;
-    private float currentGrabDistance;
-    private Vector3 lastPosition;
+    private ConfigurableJoint joint;
+    private Vector3 previousPosition;
     private Camera playerCamera;
-    private Quaternion initialRotation;
-    private Vector3 currentVelocity; // For SmoothDamp
+    private float velocityTrackingTimer;
 
     public bool CanInteract { get; private set; } = true;
     public InteractionType InteractionType => InteractionType.Grab;
@@ -29,129 +26,89 @@ public class GrabbableObject : MonoBehaviour, IInteractable
     {
         rb = GetComponent<Rigidbody>();
         rb.mass = weightInKg;
-
-        // Set higher angular drag to reduce unwanted rotation
-        rb.angularDamping = 5f;
     }
 
-    public void OnInteract()
+    private void FixedUpdate()
     {
-        if (!isGrabbed) StartGrab();
+        if (joint != null)
+        {
+            // Track position for throw velocity
+            previousPosition = transform.position;
+        }
     }
 
+    public void OnInteract() { }
     public void OnFocus() { }
     public void OnLoseFocus() { }
 
-    public void StartGrab()
+    public void StartGrab(Rigidbody grabPoint, Camera playerCam)
     {
-        if (playerCamera == null)
-            playerCamera = Camera.main;
+        playerCamera = playerCam;
+        joint = gameObject.AddComponent<ConfigurableJoint>();
+        joint.connectedBody = grabPoint;
 
-        isGrabbed = true;
-        currentGrabDistance = Vector3.Distance(playerCamera.transform.position, transform.position);
-        currentGrabDistance = Mathf.Clamp(currentGrabDistance, minGrabDistance, maxGrabDistance);
+        // Lock all rotations
+        joint.angularXMotion = ConfigurableJointMotion.Locked;
+        joint.angularYMotion = ConfigurableJointMotion.Locked;
+        joint.angularZMotion = ConfigurableJointMotion.Locked;
 
-        rb.useGravity = false;  // Disable gravity while grabbed
-        rb.angularVelocity = Vector3.zero;  // Stop any existing rotation
-        initialRotation = transform.rotation;
-        lastPosition = transform.position;
+        // Configure movement
+        joint.xMotion = ConfigurableJointMotion.Limited;
+        joint.yMotion = ConfigurableJointMotion.Limited;
+        joint.zMotion = ConfigurableJointMotion.Limited;
 
-        // Reset smoothing velocity
-        currentVelocity = Vector3.zero;
+        // Configure spring forces
+        var drive = new JointDrive
+        {
+            positionSpring = springForce / weightInKg,
+            positionDamper = springDamping,
+            maximumForce = Mathf.Infinity
+        };
+
+        joint.xDrive = drive;
+        joint.yDrive = drive;
+        joint.zDrive = drive;
+
+        // Store initial position
+        previousPosition = transform.position;
+
+        // Configure rigidbody
+        rb.useGravity = false;
+        rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
     }
 
-    public void UpdateGrabPosition(Vector3 targetPosition)
+     public void ForwardThrow()
     {
-        if (!isGrabbed) return;
-
-        // Check if we're too far from the target
-        float distanceToTarget = Vector3.Distance(transform.position, targetPosition);
-        if (distanceToTarget > maxGrabDistance * 1.5f)
+        if (joint != null)
         {
-            EndGrab();
-            return;
+            // Calculate base throw velocity
+            Vector3 throwDirection = playerCamera.transform.forward;
+
+            // Apply weight-based throw force
+            float weightedForce = forwardThrowForce / Mathf.Sqrt(weightInKg);
+
+            // Clean up joint
+            Destroy(joint);
+
+            // Apply throw force
+            rb.useGravity = true;
+            rb.linearVelocity = throwDirection * weightedForce;
         }
-
-        // Store last position for throw calculation
-        lastPosition = transform.position;
-
-        // Calculate weight-based movement speed
-        float weightedSpeed = baseMovementSpeed / Mathf.Sqrt(weightInKg);
-
-        // Use SmoothDamp for movement
-        Vector3 newPosition = Vector3.SmoothDamp(
-            transform.position,
-            targetPosition,
-            ref currentVelocity,
-            movementDamping,
-            weightedSpeed  // Add speed limit
-        );
-
-
-        // Update rigidbody position
-        rb.MovePosition(newPosition);
-
-        // If not being rotated, stabilize rotation
-        if (!isBeingRotated)
-        {
-            rb.MoveRotation(Quaternion.Slerp(transform.rotation, initialRotation, Time.deltaTime * 5f));
-        }
-    }
-
-    public void UpdateRotation(Vector2 rotationDelta)
-    {
-        if (!isGrabbed || !isBeingRotated) return;
-
-        float weightedRotationSpeed = rotationSpeed / Mathf.Sqrt(weightInKg);
-
-        // Calculate rotation
-        Quaternion deltaRotation = Quaternion.Euler(
-            rotationDelta.y * weightedRotationSpeed,
-            -rotationDelta.x * weightedRotationSpeed,
-            0
-        );
-
-        // Apply rotation directly
-        rb.MoveRotation(rb.rotation * deltaRotation);
-        initialRotation = rb.rotation; // Update initial rotation to prevent snapping
     }
 
     public void EndGrab()
     {
-        if (!isGrabbed) return;
-
-        isGrabbed = false;
-        isBeingRotated = false;
-        rb.useGravity = true;
-
-        // Apply throw force
-        Vector3 throwVelocity = (transform.position - lastPosition) / Time.deltaTime;
-        float throwMultiplier = throwForceMultiplier / Mathf.Sqrt(weightInKg);
-        rb.linearVelocity = throwVelocity * throwMultiplier;
-    }
-
-    public void SetRotationMode(bool rotating)
-    {
-        isBeingRotated = rotating;
-        if (rotating)
+        if (joint != null)
         {
-            rb.angularVelocity = Vector3.zero; // Reset any existing rotation
+            // Calculate throw velocity
+            Vector3 velocity = (transform.position - previousPosition) / Time.fixedDeltaTime;
+
+            // Clean up joint
+            Destroy(joint);
+
+            // Apply throw force
+            rb.useGravity = true;
+            rb.linearVelocity = velocity * throwForceMultiplier / Mathf.Sqrt(weightInKg);
         }
-    }
-
-    public void AdjustDistance(float scrollDelta)
-    {
-        if (!isGrabbed) return;
-
-        currentGrabDistance = Mathf.Clamp(
-            currentGrabDistance - scrollDelta,
-            minGrabDistance,
-            maxGrabDistance
-        );
-    }
-
-    public Vector3 GetTargetPosition(Vector3 playerPosition, Vector3 lookDirection)
-    {
-        return playerPosition + lookDirection * currentGrabDistance;
     }
 }
